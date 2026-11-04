@@ -1,3 +1,5 @@
 # Downloaded climate datasets
 backend/app/data/raw/
 backend/app/data/processed/
+# Local bundle visualization
+frontend/stats.html
