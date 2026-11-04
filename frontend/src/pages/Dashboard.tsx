@@ -1,6 +1,7 @@
 
 import { useState } from "react";
 import { Link } from "react-router-dom";
+
 import {
   Activity,
   ArrowRight,
@@ -11,6 +12,9 @@ import {
   Leaf,
   RefreshCw,
   Thermometer,
+  ExternalLink,
+  Database,
+  CalendarDays,
 } from "lucide-react";
 
 import MetricCard from "../components/ui/MetricCard";
@@ -18,15 +22,38 @@ import EmissionsChart from "../components/charts/EmissionsChart";
 import CountryComparisonChart from "../components/charts/CountryComparisonChart";
 import { useClimateData } from "../hooks/useClimateData";
 
+// Format numbers consistently across the dashboard
+function formatNumber(value: number, decimals = 2): string {
+  return value.toLocaleString("en-US", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+}
+
+// Handle unavailable numerical indicators
+function formatNullable(
+  value: number | null,
+  unit: string,
+  decimals = 2
+): string {
+  return value === null
+    ? "N/A"
+    : `${formatNumber(value, decimals)}${unit}`;
+}
+
 export default function Dashboard() {
   const { countries, loading, error } = useClimateData();
+
   const [selectedCode, setSelectedCode] = useState("POL");
 
   const country =
     countries.find((item) => item.code === selectedCode) ??
     countries[0];
 
-  // Loading state
+  // ====================================
+  // LOADING STATE
+  // ====================================
+
   if (loading) {
     return (
       <div
@@ -37,14 +64,18 @@ export default function Dashboard() {
           size={32}
           className="animate-spin text-emerald-400"
         />
+
         <p className="text-slate-400">
-          Loading climate intelligence...
+          Loading verified climate data...
         </p>
       </div>
     );
   }
 
-  // API error state
+  // ====================================
+  // API ERROR STATE
+  // ====================================
+
   if (error) {
     return (
       <div
@@ -60,13 +91,14 @@ export default function Dashboard() {
         </p>
 
         <p className="mt-4 text-sm text-slate-400">
-          Make sure FastAPI is running at http://127.0.0.1:8000.
+          Make sure your FastAPI backend is running at
+          http://127.0.0.1:8000.
         </p>
 
         <button
           type="button"
           onClick={() => window.location.reload()}
-          className="mt-6 rounded-xl bg-emerald-400 px-5 py-3 font-semibold text-[#071310]"
+          className="mt-6 rounded-xl bg-emerald-400 px-5 py-3 font-semibold text-[#071310] transition hover:bg-emerald-300"
         >
           Retry Connection
         </button>
@@ -74,10 +106,16 @@ export default function Dashboard() {
     );
   }
 
-  // Empty response state
+  // ====================================
+  // EMPTY DATA STATE
+  // ====================================
+
   if (!country) {
     return (
-      <div role="status" className="p-8 text-slate-400">
+      <div
+        role="status"
+        className="rounded-2xl border border-white/10 bg-[#0d1e19] p-8 text-slate-400"
+      >
         No climate country data is currently available.
       </div>
     );
@@ -85,7 +123,10 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-8">
-      {/* HEADER */}
+      {/* ====================================
+          PAGE HEADER
+      ==================================== */}
+
       <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
         <div>
           <div className="mb-3 flex items-center gap-2 text-sm text-emerald-400">
@@ -97,8 +138,10 @@ export default function Dashboard() {
             Climate Intelligence
           </h1>
 
-          <p className="mt-3 text-sm text-slate-400">
-            Explore emissions, energy indicators and country trends.
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
+            Explore real country-level CO₂ emissions,
+            historical trends, and climate indicators
+            from Our World in Data.
           </p>
         </div>
 
@@ -117,7 +160,7 @@ export default function Dashboard() {
             onChange={(event) =>
               setSelectedCode(event.target.value)
             }
-            className="min-w-48 rounded-xl border border-white/10 bg-[#10241d] px-4 py-3 text-sm text-white outline-none focus:border-emerald-400"
+            className="min-w-48 max-w-full rounded-xl border border-white/10 bg-[#10241d] px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400"
           >
             {countries.map((item) => (
               <option key={item.code} value={item.code}>
@@ -128,50 +171,88 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* DATA DISCLAIMER */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-400/20 bg-amber-400/5 px-5 py-4">
-        <p className="text-sm text-amber-200">
-          Connected to FastAPI. Climate figures are still synthetic
-          demonstration values, not verified statistics.
-        </p>
+      {/* ====================================
+          DATA SOURCE INFORMATION
+      ==================================== */}
 
-        <span className="rounded-full bg-emerald-400/10 px-3 py-1 text-xs text-emerald-300">
-          API Connected
-        </span>
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-emerald-400/20 bg-emerald-400/5 px-5 py-4">
+        <div className="flex items-start gap-3">
+          <Database
+            size={21}
+            className="mt-0.5 shrink-0 text-emerald-400"
+          />
+
+          <div>
+            <p className="font-medium text-emerald-300">
+              Climate dataset connected
+            </p>
+
+            <p className="mt-1 text-sm leading-6 text-slate-400">
+              {country.name} · {country.year} ·
+              Territorial fossil-fuel and industrial CO₂ emissions
+            </p>
+          </div>
+        </div>
+
+        <a
+          href={country.sourceUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 text-sm font-medium text-emerald-400 underline underline-offset-4 transition hover:text-emerald-300"
+        >
+          View Data Source
+          <ExternalLink size={15} />
+        </a>
       </div>
 
-      {/* KPI CARDS */}
+      {/* ====================================
+          KPI METRIC CARDS
+      ==================================== */}
+
       <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           title="Annual CO₂ Emissions"
-          value={`${country.emissions} Mt`}
-          description="Synthetic million tonnes of CO₂"
+          value={`${formatNumber(country.emissions)} Mt`}
+          description={`Million tonnes of CO₂ · ${country.year}`}
           icon={Factory}
         />
 
         <MetricCard
           title="Emissions Per Capita"
-          value={`${country.emissionsPerCapita} t`}
-          description="Synthetic tonnes per person"
+          value={formatNullable(
+            country.emissionsPerCapita,
+            " t"
+          )}
+          description={`Tonnes of CO₂ per person · ${country.year}`}
           icon={Globe2}
         />
 
         <MetricCard
           title="Renewable Share"
-          value={`${country.renewableShare}%`}
-          description="Illustrative energy share"
+          value={formatNullable(
+            country.renewableShare,
+            "%",
+            1
+          )}
+          description="Awaiting a verified energy dataset"
           icon={Leaf}
         />
 
         <MetricCard
           title="Temperature Change"
-          value={`+${country.temperatureChange}°C`}
-          description="Synthetic value; baseline undefined"
+          value={formatNullable(
+            country.temperatureChange,
+            "°C"
+          )}
+          description="Awaiting a verified temperature dataset"
           icon={Thermometer}
         />
       </div>
 
-      {/* CHARTS */}
+      {/* ====================================
+          EMISSIONS VISUALIZATIONS
+      ==================================== */}
+
       <div className="grid gap-5 xl:grid-cols-2">
         <EmissionsChart
           data={country.history}
@@ -181,40 +262,96 @@ export default function Dashboard() {
         <CountryComparisonChart countries={countries} />
       </div>
 
-      {/* COUNTRY DETAILS */}
+      {/* ====================================
+          COUNTRY CLIMATE PROFILE
+      ==================================== */}
+
       <div className="rounded-2xl border border-white/10 bg-[#0d1e19] p-7">
-        <div className="mb-5 flex items-center gap-3">
-          <Globe2 size={23} className="text-emerald-400" />
+        <div className="mb-6 flex items-center gap-3">
+          <Globe2
+            size={23}
+            className="text-emerald-400"
+          />
+
           <h2 className="text-xl font-semibold">
             {country.name} Climate Profile
           </h2>
         </div>
 
-        <div className="grid gap-6 sm:grid-cols-3">
+        <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
           <div>
-            <p className="text-xs text-slate-500">Country Code</p>
-            <p className="mt-2 font-medium">{country.code}</p>
-          </div>
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <Globe2 size={15} />
+              Country Code
+            </div>
 
-          <div>
-            <p className="text-xs text-slate-500">Data Status</p>
-            <p className="mt-2 font-medium">
-              {country.dataStatus}
+            <p className="mt-2 text-lg font-medium">
+              {country.code}
             </p>
           </div>
 
           <div>
-            <p className="text-xs text-slate-500">Data Source</p>
-            <p className="mt-2 font-medium">
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <CalendarDays size={15} />
+              Reporting Year
+            </div>
+
+            <p className="mt-2 text-lg font-medium">
+              {country.year}
+            </p>
+          </div>
+
+          <div>
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <Database size={15} />
+              Data Source
+            </div>
+
+            <p className="mt-2 text-lg font-medium">
               {country.dataSource}
             </p>
           </div>
+
+          <div>
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <Activity size={15} />
+              Historical Records
+            </div>
+
+            <p className="mt-2 text-lg font-medium">
+              {country.history.length} years
+            </p>
+          </div>
+        </div>
+
+        {/* METHODOLOGY */}
+        <div className="mt-7 rounded-xl border border-white/10 bg-white/[0.03] p-5">
+          <p className="text-sm font-semibold text-slate-200">
+            Understanding this dataset
+          </p>
+
+          <p className="mt-3 text-sm leading-7 text-slate-400">
+            Annual CO₂ emissions represent territorial
+            emissions from fossil fuels and industrial
+            processes. They exclude land-use change.
+            Values are reported in million tonnes of CO₂,
+            while per-capita figures are measured in
+            tonnes per person.
+          </p>
+
+          <p className="mt-3 text-xs text-slate-500">
+            Dataset status: {country.dataStatus}.
+            The latest available year may differ between countries.
+          </p>
         </div>
       </div>
 
-      {/* LOWER SECTION */}
+      {/* ====================================
+          CLIMATE EXPLORER + QUICK ACTIONS
+      ==================================== */}
+
       <div className="grid gap-5 lg:grid-cols-3">
-        {/* EXPLORER */}
+        {/* INTERACTIVE GLOBE PREVIEW */}
         <div className="rounded-2xl border border-white/10 bg-[#0d1e19] p-7 lg:col-span-2">
           <div className="flex items-center gap-3">
             <BarChart3
@@ -228,8 +365,10 @@ export default function Dashboard() {
           </div>
 
           <p className="mt-4 max-w-xl leading-7 text-slate-400">
-            Explore country-level climate information through
-            our interactive 3D Earth visualization.
+            Explore country-level CO₂ emissions
+            through an interactive 3D globe.
+            Select countries to examine their
+            historical climate data and trends.
           </p>
 
           <div className="mt-8 flex min-h-48 items-center justify-center rounded-xl border border-emerald-400/10 bg-emerald-400/5">
@@ -242,37 +381,41 @@ export default function Dashboard() {
 
           <Link
             to="/explorer"
-            className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-emerald-400"
+            className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-emerald-400 transition hover:text-emerald-300"
           >
             Open Interactive Globe
             <ArrowRight size={17} />
           </Link>
         </div>
 
-        {/* QUICK ACTIONS */}
+        {/* CLIMATE ACTION TOOLS */}
         <div className="rounded-2xl border border-white/10 bg-[#0d1e19] p-7">
           <h3 className="text-xl font-semibold">
             Climate Action Tools
           </h3>
 
           <p className="mt-3 text-sm leading-6 text-slate-400">
-            Explore additional platform capabilities.
+            Explore the platform's climate intelligence
+            and sustainability tools.
           </p>
 
           <div className="mt-7 space-y-3">
             {[
               {
                 title: "SME Climate Simulator",
+                description: "Model business emissions",
                 path: "/simulator",
                 icon: Factory,
               },
               {
                 title: "Country Comparison",
+                description: "Compare national indicators",
                 path: "/compare",
                 icon: Globe2,
               },
               {
                 title: "AI Policy Assistant",
+                description: "Understand climate policies",
                 path: "/assistant",
                 icon: BrainCircuit,
               },
@@ -285,11 +428,26 @@ export default function Dashboard() {
                   to={tool.path}
                   className="flex items-center gap-3 rounded-xl border border-white/10 p-4 text-sm transition hover:border-emerald-400/30 hover:bg-emerald-400/5"
                 >
-                  <Icon size={20} className="text-emerald-400" />
-                  <span className="flex-1">{tool.title}</span>
+                  <div className="rounded-lg bg-emerald-400/10 p-3">
+                    <Icon
+                      size={20}
+                      className="text-emerald-400"
+                    />
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium">
+                      {tool.title}
+                    </p>
+
+                    <p className="mt-1 text-xs text-slate-500">
+                      {tool.description}
+                    </p>
+                  </div>
+
                   <ArrowRight
                     size={16}
-                    className="text-slate-500"
+                    className="shrink-0 text-slate-500"
                   />
                 </Link>
               );
@@ -298,8 +456,9 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* FOOTER */}
       <p className="pb-4 text-center text-xs text-slate-600">
-        Beyond Borders Climate · API-Connected Development Preview
+        Beyond Borders Climate · Climate Intelligence Platform
       </p>
     </div>
   );

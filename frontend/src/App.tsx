@@ -12,14 +12,26 @@ import {
 import Home from "./pages/Home";
 import AppLayout from "./components/layout/AppLayout";
 
-// Lazy-load heavier pages only when needed
-const Dashboard = lazy(() => import("./pages/Dashboard"));
+// ========================================
+// LAZY-LOADED APPLICATION PAGES
+// ========================================
+
+const Dashboard = lazy(
+  () => import("./pages/Dashboard")
+);
 
 const ClimateExplorer = lazy(
   () => import("./pages/ClimateExplorer")
 );
 
-// Reusable loading screen
+const Compare = lazy(
+  () => import("./pages/Compare")
+);
+
+// ========================================
+// LOADING SCREEN
+// ========================================
+
 function PageLoader() {
   return (
     <div
@@ -41,7 +53,10 @@ function PageLoader() {
   );
 }
 
-// Placeholder for features we haven't built yet
+// ========================================
+// PLACEHOLDER FOR FUTURE FEATURES
+// ========================================
+
 function ComingSoon({ title }: { title: string }) {
   return (
     <div className="flex min-h-[65vh] flex-col items-center justify-center px-6 text-center">
@@ -68,6 +83,10 @@ function ComingSoon({ title }: { title: string }) {
   );
 }
 
+// ========================================
+// MAIN APPLICATION ROUTER
+// ========================================
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -76,18 +95,27 @@ export default function App() {
           {/* PUBLIC LANDING PAGE */}
           <Route path="/" element={<Home />} />
 
-          {/* CLIMATE PLATFORM */}
+          {/* CLIMATE INTELLIGENCE PLATFORM */}
           <Route element={<AppLayout />}>
+            {/* MAIN DASHBOARD */}
             <Route
               path="/dashboard"
               element={<Dashboard />}
             />
 
+            {/* 3D CLIMATE EXPLORER */}
             <Route
               path="/explorer"
               element={<ClimateExplorer />}
             />
 
+            {/* COUNTRY COMPARISON */}
+            <Route
+              path="/compare"
+              element={<Compare />}
+            />
+
+            {/* SME CLIMATE SIMULATOR */}
             <Route
               path="/simulator"
               element={
@@ -95,22 +123,16 @@ export default function App() {
               }
             />
 
+            {/* AI POLICY ASSISTANT */}
             <Route
               path="/assistant"
               element={
                 <ComingSoon title="AI Policy Assistant" />
               }
             />
-
-            <Route
-              path="/compare"
-              element={
-                <ComingSoon title="Country Comparison" />
-              }
-            />
           </Route>
 
-          {/* FALLBACK ROUTE */}
+          {/* FALLBACK FOR UNKNOWN ROUTES */}
           <Route
             path="*"
             element={<Navigate to="/" replace />}

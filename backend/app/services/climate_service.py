@@ -1,72 +1,71 @@
 
-from app.models.climate import ClimateRecord, CountryClimate
+import json
+from functools import lru_cache
+from pathlib import Path
+
+from app.models.climate import CountryClimate
 
 
-# Synthetic demonstration data only.
-# These values are NOT verified climate statistics.
+DATA_FILE = (
+    Path(__file__).resolve().parents[1]
+    / "data"
+    / "processed"
+    / "climate_data.json"
+)
 
-COUNTRIES = [
-    CountryClimate(
-        code="POL",
-        name="Poland",
-        emissions=310,
-        emissions_per_capita=8.2,
-        renewable_share=23,
-        temperature_change=1.6,
-        history=[
-            ClimateRecord(year=2019, emissions=330),
-            ClimateRecord(year=2020, emissions=305),
-            ClimateRecord(year=2021, emissions=325),
-            ClimateRecord(year=2022, emissions=320),
-            ClimateRecord(year=2023, emissions=305),
-            ClimateRecord(year=2024, emissions=310),
-        ],
-    ),
-    CountryClimate(
-        code="DEU",
-        name="Germany",
-        emissions=590,
-        emissions_per_capita=7.1,
-        renewable_share=54,
-        temperature_change=1.8,
-        history=[
-            ClimateRecord(year=2019, emissions=680),
-            ClimateRecord(year=2020, emissions=620),
-            ClimateRecord(year=2021, emissions=650),
-            ClimateRecord(year=2022, emissions=640),
-            ClimateRecord(year=2023, emissions=610),
-            ClimateRecord(year=2024, emissions=590),
-        ],
-    ),
-    CountryClimate(
-        code="PAK",
-        name="Pakistan",
-        emissions=200,
-        emissions_per_capita=0.9,
-        renewable_share=12,
-        temperature_change=1.3,
-        history=[
-            ClimateRecord(year=2019, emissions=175),
-            ClimateRecord(year=2020, emissions=170),
-            ClimateRecord(year=2021, emissions=185),
-            ClimateRecord(year=2022, emissions=195),
-            ClimateRecord(year=2023, emissions=198),
-            ClimateRecord(year=2024, emissions=200),
-        ],
-    ),
-]
+
+@lru_cache(maxsize=1)
+def load_climate_data() -> tuple[CountryClimate, ...]:
+    """
+    Load processed OWID climate records once
+    and cache the validated profiles.
+    """
+
+    if not DATA_FILE.exists():
+        raise FileNotFoundError(
+            f"Climate data file not found: {DATA_FILE}. "
+            "Run python scripts/process_climate_data.py first."
+        )
+
+    with DATA_FILE.open("r", encoding="utf-8") as file:
+        payload = json.load(file)
+
+    records = payload.get("countries")
+
+    if not isinstance(records, list):
+        raise ValueError(
+            "Invalid climate JSON: 'countries' must be a list."
+        )
+
+    countries = tuple(
+        CountryClimate.model_validate(record)
+        for record in records
+    )
+
+    codes = [country.code for country in countries]
+
+    if len(codes) != len(set(codes)):
+        raise ValueError(
+            "Duplicate country codes detected."
+        )
+
+    return countries
 
 
 def get_all_countries() -> list[CountryClimate]:
-    return COUNTRIES
+    return list(load_climate_data())
 
 
-def get_country_by_code(code: str) -> CountryClimate | None:
+def get_country_by_code(
+    code: str,
+) -> CountryClimate | None:
+    normalized_code = code.strip().upper()
+
     return next(
         (
             country
-            for country in COUNTRIES
-            if country.code == code.upper()
+            for country in load_climate_data()
+            if country.code == normalized_code
         ),
         None,
     )
