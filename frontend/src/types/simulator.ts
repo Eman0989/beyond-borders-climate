@@ -34,3 +34,18 @@ export type SimulationResponse = {
   methodology: string;
   limitations: string[];
 };
+
+export type ElectricityEmissionFactor = {
+  country_code: string;
+  value: number;
+  year: number;
+  source: string;
+  source_url: string;
+  unit: string;
+  gas_basis: string;
+};
+
+export type EmissionFactorsResponse = {
+  count: number;
+  factors: ElectricityEmissionFactor[];
+};

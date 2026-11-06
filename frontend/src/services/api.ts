@@ -8,6 +8,7 @@ import {
 import type {
   SimulationRequest,
   SimulationResponse,
+  EmissionFactorsResponse,
 } from "../types/simulator";
 
 // ========================================
@@ -64,7 +65,7 @@ async function apiRequest<T>(
         }
       }
     } catch {
-      // Preserve the HTTP status if parsing fails.
+      // Preserve HTTP status if JSON parsing fails.
     }
 
     throw new Error(message);
@@ -129,6 +130,16 @@ export const simulatorApi = {
         method: "POST",
         body: JSON.stringify(request),
       }
+    );
+  },
+
+  // Retrieve all documented electricity factors
+  async getFactors(
+    signal?: AbortSignal
+  ): Promise<EmissionFactorsResponse> {
+    return apiRequest<EmissionFactorsResponse>(
+      "/api/simulator/factors",
+      { signal }
     );
   },
 };

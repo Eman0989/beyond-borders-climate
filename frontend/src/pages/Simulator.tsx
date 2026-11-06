@@ -1,5 +1,5 @@
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 
 import {
@@ -12,6 +12,7 @@ import {
   Factory,
   Leaf,
   LoaderCircle,
+  RefreshCw,
   Wallet,
   Zap,
 } from "lucide-react";
@@ -21,6 +22,7 @@ import { useClimateData } from "../hooks/useClimateData";
 
 import type {
   Currency,
+  ElectricityEmissionFactor,
   SimulationResponse,
 } from "../types/simulator";
 
@@ -46,6 +48,10 @@ const labelClass =
 export default function Simulator() {
   const { countries } = useClimateData();
 
+  // ========================================
+  // BUSINESS INPUTS
+  // ========================================
+
   const [countryCode, setCountryCode] = useState("POL");
   const [electricity, setElectricity] = useState("10000");
   const [price, setPrice] = useState("0.90");
@@ -55,8 +61,26 @@ export default function Simulator() {
 
   const [useCustomFactor, setUseCustomFactor] =
     useState(false);
+
   const [customFactor, setCustomFactor] =
     useState("");
+
+  // ========================================
+  // DYNAMIC EMISSIONS FACTORS
+  // ========================================
+
+  const [availableFactors, setAvailableFactors] =
+    useState<ElectricityEmissionFactor[]>([]);
+
+  const [factorsLoading, setFactorsLoading] =
+    useState(true);
+
+  const [factorsError, setFactorsError] =
+    useState<string | null>(null);
+
+  // ========================================
+  // SIMULATION STATE
+  // ========================================
 
   const [result, setResult] =
     useState<SimulationResponse | null>(null);
@@ -64,10 +88,53 @@ export default function Simulator() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Currently Poland is the only country
-  // with an implemented verified default factor.
+  // ========================================
+  // LOAD DOCUMENTED FACTORS FROM FASTAPI
+  // ========================================
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadFactors() {
+      try {
+        const response = await simulatorApi.getFactors(
+          controller.signal
+        );
+
+        if (!controller.signal.aborted) {
+          setAvailableFactors(response.factors);
+          setFactorsError(null);
+        }
+      } catch (err) {
+        if (controller.signal.aborted) return;
+
+        setFactorsError(
+          err instanceof Error
+            ? err.message
+            : "Unable to load electricity factors."
+        );
+      } finally {
+        if (!controller.signal.aborted) {
+          setFactorsLoading(false);
+        }
+      }
+    }
+
+    loadFactors();
+
+    return () => controller.abort();
+  }, []);
+
+  // ========================================
+  // COUNTRY-SPECIFIC FACTOR SELECTION
+  // ========================================
+
+  const selectedFactor = availableFactors.find(
+    (factor) => factor.country_code === countryCode
+  );
+
   const needsCustomFactor =
-    countryCode !== "POL" || useCustomFactor;
+    !selectedFactor || useCustomFactor;
 
   const countryOptions =
     countries.length > 0
@@ -79,10 +146,18 @@ export default function Simulator() {
     setError(null);
   }
 
+  // ========================================
+  // RUN SIMULATION
+  // ========================================
+
   async function handleSubmit(
     event: FormEvent<HTMLFormElement>
   ) {
     event.preventDefault();
+
+    if (factorsLoading || factorsError || submitting) {
+      return;
+    }
 
     const annualKwh = Number(electricity);
     const electricityPrice = Number(price);
@@ -93,7 +168,9 @@ export default function Simulator() {
       annualKwh < 0 ||
       annualKwh > 1_000_000_000
     ) {
-      setError("Enter a valid annual electricity consumption.");
+      setError(
+        "Enter a valid annual electricity consumption."
+      );
       return;
     }
 
@@ -154,12 +231,6 @@ export default function Simulator() {
     }
   }
 
-  const currencySymbol: Record<Currency, string> = {
-    PLN: "PLN",
-    EUR: "EUR",
-    USD: "USD",
-  };
-
   return (
     <div className="space-y-8">
       {/* PAGE HEADER */}
@@ -183,13 +254,16 @@ export default function Simulator() {
 
         <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-400">
           Estimate electricity-related emissions,
-          explore energy reduction scenarios,
-          and understand potential electricity cost savings.
+          explore reduction scenarios, and calculate
+          potential electricity cost savings.
         </p>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        {/* INPUT PANEL */}
+      <div className="grid gap-6 xl:grid-cols-2">
+        {/* ========================================
+            BUSINESS INPUTS
+        ======================================== */}
+
         <form
           onSubmit={handleSubmit}
           className="space-y-6 rounded-2xl border border-white/10 bg-[#0d1e19] p-6 sm:p-7"
@@ -207,7 +281,10 @@ export default function Simulator() {
 
           {/* COUNTRY */}
           <div>
-            <label htmlFor="sim-country" className={labelClass}>
+            <label
+              htmlFor="sim-country"
+              className={labelClass}
+            >
               Country
             </label>
 
@@ -233,9 +310,9 @@ export default function Simulator() {
             </select>
 
             <p className="mt-2 text-xs leading-5 text-slate-500">
-              Poland has a documented default factor.
-              Other countries currently require a
-              user-supplied electricity emissions factor.
+              Countries with documented electricity
+              factors use their available default.
+              Other countries require a custom factor.
             </p>
           </div>
 
@@ -264,7 +341,7 @@ export default function Simulator() {
             />
           </div>
 
-          {/* PRICE */}
+          {/* ELECTRICITY COST */}
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label
@@ -351,7 +428,10 @@ export default function Simulator() {
             </div>
           </div>
 
-          {/* EMISSIONS FACTOR */}
+          {/* ========================================
+              DYNAMIC EMISSIONS FACTOR
+          ======================================== */}
+
           <div className="rounded-xl border border-white/10 bg-white/[0.03] p-5">
             <div className="flex items-center gap-2">
               <Database
@@ -360,68 +440,131 @@ export default function Simulator() {
               />
 
               <h3 className="text-sm font-semibold">
-                Electricity emissions factor
+                Electricity Emissions Factor
               </h3>
             </div>
 
-            {countryCode === "POL" && (
-              <label className="mt-4 flex items-center gap-3 text-sm text-slate-300">
-                <input
-                  type="checkbox"
-                  checked={useCustomFactor}
-                  onChange={(event) => {
-                    setUseCustomFactor(event.target.checked);
-                    changeInputs();
-                  }}
-                  className="accent-emerald-400"
+            {factorsLoading ? (
+              <div
+                role="status"
+                className="mt-4 flex items-center gap-3 text-sm text-slate-400"
+              >
+                <RefreshCw
+                  size={17}
+                  className="animate-spin"
                 />
-                Override Poland's default factor
-              </label>
-            )}
+                Loading country factors...
+              </div>
+            ) : factorsError ? (
+              <div
+                role="alert"
+                className="mt-4 rounded-lg border border-rose-400/20 bg-rose-400/5 p-4"
+              >
+                <p className="text-sm text-rose-300">
+                  Could not load electricity factors.
+                </p>
 
-            {needsCustomFactor ? (
-              <div className="mt-4">
-                <label
-                  htmlFor="sim-factor"
-                  className={labelClass}
-                >
-                  Custom factor (kg/kWh)
-                </label>
+                <p className="mt-2 text-xs text-slate-400">
+                  {factorsError}
+                </p>
 
-                <input
-                  id="sim-factor"
-                  type="number"
-                  min="0"
-                  max="5"
-                  step="any"
-                  required
-                  value={customFactor}
-                  onChange={(event) => {
-                    setCustomFactor(event.target.value);
-                    changeInputs();
-                  }}
-                  placeholder="Enter your documented factor"
-                  className={inputClass}
-                />
-
-                <p className="mt-2 text-xs leading-5 text-amber-200/80">
-                  Custom factors are user-supplied assumptions.
-                  Confirm whether your factor measures CO₂ or CO₂e.
+                <p className="mt-2 text-xs text-slate-500">
+                  Check that FastAPI is running and
+                  your frontend origin is allowed.
                 </p>
               </div>
             ) : (
-              <div className="mt-4 rounded-lg bg-emerald-400/5 p-4">
-                <p className="text-lg font-semibold text-emerald-300">
-                  0.553 kg CO₂/kWh
-                </p>
+              <>
+                {selectedFactor && (
+                  <label className="mt-4 flex items-center gap-3 text-sm text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={useCustomFactor}
+                      onChange={(event) => {
+                        setUseCustomFactor(
+                          event.target.checked
+                        );
+                        changeInputs();
+                      }}
+                      className="accent-emerald-400"
+                    />
+                    Override documented country factor
+                  </label>
+                )}
 
-                <p className="mt-1 text-xs text-slate-400">
-                  KOBiZE · Poland · 2024 electricity data
-                </p>
-              </div>
+                {needsCustomFactor ? (
+                  <div className="mt-4">
+                    {!selectedFactor && (
+                      <p className="mb-3 text-xs leading-5 text-amber-200">
+                        No documented default electricity
+                        factor is available for this country.
+                        Supply your own factor to continue.
+                      </p>
+                    )}
+
+                    <label
+                      htmlFor="sim-factor"
+                      className={labelClass}
+                    >
+                      Custom factor (kg/kWh)
+                    </label>
+
+                    <input
+                      id="sim-factor"
+                      type="number"
+                      min="0"
+                      max="5"
+                      step="any"
+                      required
+                      value={customFactor}
+                      onChange={(event) => {
+                        setCustomFactor(event.target.value);
+                        changeInputs();
+                      }}
+                      placeholder="Enter your documented factor"
+                      className={inputClass}
+                    />
+
+                    <p className="mt-2 text-xs leading-5 text-amber-200/80">
+                      User-supplied factors are not verified
+                      by the application. Check whether
+                      your factor measures CO₂ or CO₂e.
+                    </p>
+                  </div>
+                ) : (
+                  selectedFactor && (
+                    <div className="mt-4 rounded-lg bg-emerald-400/5 p-4">
+                      <p className="text-lg font-semibold text-emerald-300">
+                        {selectedFactor.value}{" "}
+                        {selectedFactor.unit}
+                      </p>
+
+                      <p className="mt-2 text-xs text-slate-400">
+                        {selectedFactor.source} ·{" "}
+                        {selectedFactor.year}
+                      </p>
+
+                      <p className="mt-1 text-xs text-slate-500">
+                        {selectedFactor.gas_basis}
+                      </p>
+
+                      <a
+                        href={selectedFactor.source_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-3 inline-flex items-center gap-1 text-xs text-emerald-400 hover:underline"
+                      >
+                        View factor source
+                        <ExternalLink size={13} />
+                      </a>
+                    </div>
+                  )
+                )}
+              </>
             )}
           </div>
 
+          {/* ERROR */}
           {error && (
             <div
               role="alert"
@@ -431,10 +574,15 @@ export default function Simulator() {
             </div>
           )}
 
+          {/* CALCULATE */}
           <button
             type="submit"
-            disabled={submitting}
-            className="flex w-full items-center justify-center gap-3 rounded-xl bg-emerald-400 px-5 py-4 font-semibold text-[#071310] transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={
+              submitting ||
+              factorsLoading ||
+              factorsError !== null
+            }
+            className="flex w-full items-center justify-center gap-3 rounded-xl bg-emerald-400 px-5 py-4 font-semibold text-[#071310] transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {submitting ? (
               <>
@@ -454,7 +602,10 @@ export default function Simulator() {
           </button>
         </form>
 
-        {/* RESULTS PANEL */}
+        {/* ========================================
+            RESULTS PANEL
+        ======================================== */}
+
         <div className="space-y-5">
           <div className="rounded-2xl border border-white/10 bg-[#0d1e19] p-6 sm:p-7">
             <div className="mb-6 flex items-center gap-3">
@@ -475,6 +626,7 @@ export default function Simulator() {
                   Calculation completed
                 </div>
 
+                {/* EMISSIONS METRICS */}
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="rounded-xl bg-white/5 p-5">
                     <p className="text-xs text-slate-400">
@@ -485,11 +637,12 @@ export default function Simulator() {
                       {numberFormat(
                         result.baseline_emissions_tonnes,
                         3
-                      )}
+                      )}{" "}
+                      t
                     </p>
 
                     <p className="mt-1 text-xs text-slate-500">
-                      Tonnes · {result.factor_gas_basis}
+                      {result.factor_gas_basis}
                     </p>
                   </div>
 
@@ -502,11 +655,12 @@ export default function Simulator() {
                       {numberFormat(
                         result.scenario_emissions_tonnes,
                         3
-                      )}
+                      )}{" "}
+                      t
                     </p>
 
                     <p className="mt-1 text-xs text-slate-500">
-                      Tonnes · {result.factor_gas_basis}
+                      {result.factor_gas_basis}
                     </p>
                   </div>
 
@@ -538,7 +692,7 @@ export default function Simulator() {
                     </p>
 
                     <p className="mt-1 text-xs text-emerald-300/80">
-                      {currencySymbol[result.currency]}
+                      {result.currency}
                     </p>
                   </div>
                 </div>
@@ -576,6 +730,7 @@ export default function Simulator() {
                       <div key={item.label}>
                         <div className="mb-2 flex items-center justify-between gap-2 text-xs text-slate-400">
                           <span>{item.label}</span>
+
                           <span>
                             {numberFormat(item.value, 3)} t
                           </span>
@@ -592,6 +747,7 @@ export default function Simulator() {
                   </div>
                 </div>
 
+                {/* FINANCIAL SUMMARY */}
                 <div className="rounded-xl border border-white/10 p-5">
                   <h3 className="text-sm font-semibold">
                     Financial Summary
@@ -602,6 +758,7 @@ export default function Simulator() {
                       <span className="text-slate-400">
                         Baseline electricity cost
                       </span>
+
                       <span>
                         {numberFormat(
                           result.baseline_electricity_cost
@@ -614,9 +771,23 @@ export default function Simulator() {
                       <span className="text-slate-400">
                         Scenario electricity cost
                       </span>
+
                       <span>
                         {numberFormat(
                           result.scenario_electricity_cost
+                        )}{" "}
+                        {result.currency}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between gap-4 border-t border-white/10 pt-3">
+                      <span className="text-emerald-300">
+                        Estimated annual savings
+                      </span>
+
+                      <span className="font-semibold text-emerald-300">
+                        {numberFormat(
+                          result.annual_cost_savings
                         )}{" "}
                         {result.currency}
                       </span>
@@ -638,15 +809,18 @@ export default function Simulator() {
                 </h3>
 
                 <p className="mt-3 max-w-xs text-sm leading-6 text-slate-400">
-                  Enter your business electricity data,
+                  Enter your electricity consumption,
                   choose a reduction scenario, and run
-                  the simulation to view the results.
+                  the simulation.
                 </p>
               </div>
             )}
           </div>
 
-          {/* METHODOLOGY */}
+          {/* ========================================
+              SOURCES & METHODOLOGY
+          ======================================== */}
+
           {result && (
             <div className="rounded-2xl border border-white/10 bg-[#0d1e19] p-6">
               <div className="mb-4 flex items-center gap-2">
@@ -673,6 +847,10 @@ export default function Simulator() {
               <p className="mt-2 text-xs text-slate-400">
                 Reporting year:{" "}
                 {result.factor_year ?? "Not specified"}
+              </p>
+
+              <p className="mt-2 text-xs text-slate-400">
+                Gas basis: {result.factor_gas_basis}
               </p>
 
               <p className="mt-4 text-xs leading-6 text-slate-400">
