@@ -28,6 +28,11 @@ const Compare = lazy(
   () => import("./pages/Compare")
 );
 
+// SME Climate Simulator
+const Simulator = lazy(
+  () => import("./pages/Simulator")
+);
+
 // ========================================
 // LOADING SCREEN
 // ========================================
@@ -97,6 +102,7 @@ export default function App() {
 
           {/* CLIMATE INTELLIGENCE PLATFORM */}
           <Route element={<AppLayout />}>
+            
             {/* MAIN DASHBOARD */}
             <Route
               path="/dashboard"
@@ -115,15 +121,13 @@ export default function App() {
               element={<Compare />}
             />
 
-            {/* SME CLIMATE SIMULATOR */}
+            {/* SME CLIMATE SIMULATOR — ACTIVE */}
             <Route
               path="/simulator"
-              element={
-                <ComingSoon title="SME Climate Simulator" />
-              }
+              element={<Simulator />}
             />
 
-            {/* AI POLICY ASSISTANT */}
+            {/* AI POLICY ASSISTANT — COMING SOON */}
             <Route
               path="/assistant"
               element={
