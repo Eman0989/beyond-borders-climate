@@ -5,65 +5,130 @@ import {
   type CountryClimateAPI,
 } from "../types/climate";
 
-// FastAPI backend address
-const API_URL =
-  import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000";
+import type {
+  SimulationRequest,
+  SimulationResponse,
+} from "../types/simulator";
 
-// Reusable API request function
+// ========================================
+// FASTAPI BACKEND URL
+// ========================================
+
+const API_URL =
+  import.meta.env.VITE_API_URL ??
+  "http://127.0.0.1:8000";
+
+// ========================================
+// REUSABLE API REQUEST
+// ========================================
+
 async function apiRequest<T>(
   endpoint: string,
-  signal?: AbortSignal
+  options: RequestInit = {}
 ): Promise<T> {
-  const response = await fetch(`${API_URL}${endpoint}`, {
-    method: "GET",
-    headers: {
-      Accept: "application/json",
-    },
-    signal,
-  });
+  const response = await fetch(
+    `${API_URL}${endpoint}`,
+    {
+      ...options,
+      headers: {
+        Accept: "application/json",
+        ...(options.body
+          ? { "Content-Type": "application/json" }
+          : {}),
+        ...options.headers,
+      },
+    }
+  );
 
   if (!response.ok) {
-    throw new Error(
-      `API request failed: ${response.status} ${response.statusText}`
-    );
+    let message = `API error: ${response.status}`;
+
+    try {
+      const body: unknown = await response.json();
+
+      if (
+        typeof body === "object" &&
+        body !== null &&
+        "detail" in body
+      ) {
+        const detail = body.detail;
+
+        if (typeof detail === "string") {
+          message = detail;
+        } else if (Array.isArray(detail)) {
+          message = detail
+            .map((item: { msg?: string }) =>
+              item.msg ?? "Invalid input"
+            )
+            .join("; ");
+        }
+      }
+    } catch {
+      // Preserve the HTTP status if parsing fails.
+    }
+
+    throw new Error(message);
   }
 
-  return response.json() as Promise<T>;
+  return (await response.json()) as T;
 }
 
-// Climate API endpoints
+// ========================================
+// CLIMATE DATA API
+// ========================================
+
 export const climateApi = {
-  // Get all available countries
+  // Retrieve all country climate profiles
   async getCountries(
     signal?: AbortSignal
   ): Promise<CountryClimate[]> {
-    const response = await apiRequest<CountryClimateAPI[]>(
-      "/api/climate/countries",
-      signal
-    );
+    const response = await apiRequest<
+      CountryClimateAPI[]
+    >("/api/climate/countries", { signal });
 
     return response.map(normalizeCountry);
   },
 
-  // Get climate information for a specific country
+  // Retrieve a specific country
   async getCountry(
     code: string,
     signal?: AbortSignal
   ): Promise<CountryClimate> {
-    const response = await apiRequest<CountryClimateAPI>(
-      `/api/climate/countries/${encodeURIComponent(code)}`,
-      signal
-    );
+    const response =
+      await apiRequest<CountryClimateAPI>(
+        `/api/climate/countries/${encodeURIComponent(code)}`,
+        { signal }
+      );
 
     return normalizeCountry(response);
   },
 
-  // Check whether FastAPI is running
+  // Check backend health
   async healthCheck(signal?: AbortSignal) {
     return apiRequest<{
       status: string;
       service: string;
       version: string;
-    }>("/api/health", signal);
+    }>("/api/health", { signal });
+  },
+};
+
+// ========================================
+// SME CLIMATE SIMULATOR API
+// ========================================
+
+export const simulatorApi = {
+  // Calculate electricity-related emissions
+  // and estimated cost savings
+  async calculate(
+    request: SimulationRequest
+  ): Promise<SimulationResponse> {
+    return apiRequest<SimulationResponse>(
+      "/api/simulator",
+      {
+        method: "POST",
+        body: JSON.stringify(request),
+      }
+    );
   },
 };

@@ -1,23 +1,28 @@
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter
 
-router = APIRouter(prefix="/simulator", tags=["Simulator"])
+from app.models.simulator import (
+    SimulationRequest,
+    SimulationResponse,
+)
+
+from app.services.simulator_service import (
+    calculate_emissions,
+)
 
 
-class SimulationRequest(BaseModel):
-    country_code: str
-    annual_electricity_kwh: float = Field(gt=0)
-    electricity_price_per_kwh: float = Field(ge=0)
-    reduction_percentage: float = Field(ge=0, le=100)
+router = APIRouter(
+    prefix="/simulator",
+    tags=["Simulator"],
+)
 
 
-@router.post("")
-def run_simulation(request: SimulationRequest):
-    raise HTTPException(
-        status_code=501,
-        detail=(
-            "Climate simulation is not implemented yet. "
-            "Verified emission factors are required."
-        ),
-    )
+@router.post(
+    "",
+    response_model=SimulationResponse,
+)
+def run_simulation(
+    request: SimulationRequest,
+) -> SimulationResponse:
+
+    return calculate_emissions(request)
