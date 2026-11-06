@@ -1,10 +1,17 @@
 
-import { useEffect, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
+
 import { Link } from "react-router-dom";
 
 import {
   ArrowLeft,
   ArrowRight,
+  BarChart3,
   Calculator,
   CheckCircle2,
   Database,
@@ -24,7 +31,13 @@ import type {
   Currency,
   ElectricityEmissionFactor,
   SimulationResponse,
+  ScenarioComparisonResponse,
+  ScenarioComparisonRequest,
 } from "../types/simulator";
+
+// ========================================
+// FALLBACK COUNTRY OPTIONS
+// ========================================
 
 const FALLBACK_COUNTRIES = [
   { code: "POL", name: "Poland" },
@@ -32,7 +45,14 @@ const FALLBACK_COUNTRIES = [
   { code: "PAK", name: "Pakistan" },
 ];
 
-function numberFormat(value: number, digits = 2) {
+// ========================================
+// FORMATTING
+// ========================================
+
+function numberFormat(
+  value: number,
+  digits = 2
+): string {
   return value.toLocaleString("en-US", {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
@@ -45,6 +65,13 @@ const inputClass =
 const labelClass =
   "mb-2 block text-sm font-medium text-slate-300";
 
+const panelClass =
+  "rounded-2xl border border-white/10 bg-[#0d1e19] p-6 sm:p-7";
+
+// ========================================
+// MAIN SIMULATOR COMPONENT
+// ========================================
+
 export default function Simulator() {
   const { countries } = useClimateData();
 
@@ -52,10 +79,18 @@ export default function Simulator() {
   // BUSINESS INPUTS
   // ========================================
 
-  const [countryCode, setCountryCode] = useState("POL");
-  const [electricity, setElectricity] = useState("10000");
-  const [price, setPrice] = useState("0.90");
-  const [reduction, setReduction] = useState(20);
+  const [countryCode, setCountryCode] =
+    useState("POL");
+
+  const [electricity, setElectricity] =
+    useState("10000");
+
+  const [price, setPrice] =
+    useState("0.90");
+
+  const [reduction, setReduction] =
+    useState(20);
+
   const [currency, setCurrency] =
     useState<Currency>("PLN");
 
@@ -66,7 +101,7 @@ export default function Simulator() {
     useState("");
 
   // ========================================
-  // DYNAMIC EMISSIONS FACTORS
+  // DOCUMENTED FACTOR STATE
   // ========================================
 
   const [availableFactors, setAvailableFactors] =
@@ -79,17 +114,39 @@ export default function Simulator() {
     useState<string | null>(null);
 
   // ========================================
-  // SIMULATION STATE
+  // SINGLE SIMULATION STATE
   // ========================================
 
   const [result, setResult] =
     useState<SimulationResponse | null>(null);
 
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] =
+    useState(false);
+
+  const [error, setError] =
+    useState<string | null>(null);
 
   // ========================================
-  // LOAD DOCUMENTED FACTORS FROM FASTAPI
+  // SCENARIO COMPARISON STATE
+  // ========================================
+
+  const [comparison, setComparison] =
+    useState<ScenarioComparisonResponse | null>(
+      null
+    );
+
+  const [comparing, setComparing] =
+    useState(false);
+
+  const [comparisonError, setComparisonError] =
+    useState<string | null>(null);
+
+  // Prevent responses from old inputs replacing
+  // results calculated with newer inputs.
+  const requestVersion = useRef(0);
+
+  // ========================================
+  // FETCH COUNTRY FACTORS
   // ========================================
 
   useEffect(() => {
@@ -97,22 +154,23 @@ export default function Simulator() {
 
     async function loadFactors() {
       try {
-        const response = await simulatorApi.getFactors(
-          controller.signal
-        );
+        const response =
+          await simulatorApi.getFactors(
+            controller.signal
+          );
 
         if (!controller.signal.aborted) {
           setAvailableFactors(response.factors);
           setFactorsError(null);
         }
       } catch (err) {
-        if (controller.signal.aborted) return;
-
-        setFactorsError(
-          err instanceof Error
-            ? err.message
-            : "Unable to load electricity factors."
-        );
+        if (!controller.signal.aborted) {
+          setFactorsError(
+            err instanceof Error
+              ? err.message
+              : "Unable to load electricity factors."
+          );
+        }
       } finally {
         if (!controller.signal.aborted) {
           setFactorsLoading(false);
@@ -120,18 +178,20 @@ export default function Simulator() {
       }
     }
 
-    loadFactors();
+    void loadFactors();
 
     return () => controller.abort();
   }, []);
 
   // ========================================
-  // COUNTRY-SPECIFIC FACTOR SELECTION
+  // COUNTRY FACTOR SELECTION
   // ========================================
 
-  const selectedFactor = availableFactors.find(
-    (factor) => factor.country_code === countryCode
-  );
+  const selectedFactor =
+    availableFactors.find(
+      (factor) =>
+        factor.country_code === countryCode
+    );
 
   const needsCustomFactor =
     !selectedFactor || useCustomFactor;
@@ -141,23 +201,34 @@ export default function Simulator() {
       ? countries
       : FALLBACK_COUNTRIES;
 
+  const busy = submitting || comparing;
+
+  const actionDisabled =
+    busy ||
+    factorsLoading ||
+    factorsError !== null;
+
+  // ========================================
+  // RESET OUTDATED RESULTS
+  // ========================================
+
   function changeInputs() {
+    requestVersion.current += 1;
+
     setResult(null);
     setError(null);
+
+    setComparison(null);
+    setComparisonError(null);
   }
 
   // ========================================
-  // RUN SIMULATION
+  // SHARED INPUT VALIDATION
   // ========================================
 
-  async function handleSubmit(
-    event: FormEvent<HTMLFormElement>
-  ) {
-    event.preventDefault();
-
-    if (factorsLoading || factorsError || submitting) {
-      return;
-    }
+  function getValidInputs():
+    | ScenarioComparisonRequest
+    | null {
 
     const annualKwh = Number(electricity);
     const electricityPrice = Number(price);
@@ -168,10 +239,9 @@ export default function Simulator() {
       annualKwh < 0 ||
       annualKwh > 1_000_000_000
     ) {
-      setError(
-        "Enter a valid annual electricity consumption."
+      throw new Error(
+        "Enter a valid annual electricity consumption between 0 and 1 billion kWh."
       );
-      return;
     }
 
     if (
@@ -179,8 +249,9 @@ export default function Simulator() {
       !Number.isFinite(electricityPrice) ||
       electricityPrice < 0
     ) {
-      setError("Enter a valid electricity price.");
-      return;
+      throw new Error(
+        "Enter a valid electricity price per kWh."
+      );
     }
 
     let factor: number | undefined;
@@ -194,45 +265,151 @@ export default function Simulator() {
         factor < 0 ||
         factor > 5
       ) {
-        setError(
+        throw new Error(
           "Enter an electricity emissions factor between 0 and 5 kg/kWh."
         );
-        return;
       }
     }
+
+    return {
+      country_code: countryCode,
+      annual_electricity_kwh: annualKwh,
+      electricity_price_per_kwh:
+        electricityPrice,
+      currency,
+      ...(factor !== undefined
+        ? {
+            emission_factor_kg_co2e_per_kwh:
+              factor,
+          }
+        : {}),
+    };
+  }
+
+  // ========================================
+  // ORIGINAL SINGLE SIMULATION
+  // ========================================
+
+  async function handleSubmit(
+    event: FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+
+    if (actionDisabled) return;
+
+    let inputs: ScenarioComparisonRequest;
+
+    try {
+      const validated = getValidInputs();
+
+      if (!validated) return;
+
+      inputs = validated;
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Invalid business inputs."
+      );
+      return;
+    }
+
+    const currentVersion = requestVersion.current;
 
     setSubmitting(true);
     setError(null);
     setResult(null);
 
     try {
-      const response = await simulatorApi.calculate({
-        country_code: countryCode,
-        annual_electricity_kwh: annualKwh,
-        electricity_price_per_kwh: electricityPrice,
-        reduction_percentage: reduction,
-        currency,
-        ...(factor !== undefined
-          ? {
-              emission_factor_kg_co2e_per_kwh: factor,
-            }
-          : {}),
-      });
+      const response =
+        await simulatorApi.calculate({
+          ...inputs,
+          reduction_percentage: reduction,
+        });
 
-      setResult(response);
+      if (
+        requestVersion.current === currentVersion
+      ) {
+        setResult(response);
+      }
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Simulation failed. Check your connection."
-      );
+      if (
+        requestVersion.current === currentVersion
+      ) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Simulation failed."
+        );
+      }
     } finally {
       setSubmitting(false);
     }
   }
 
+  // ========================================
+  // ADVANCED SCENARIO COMPARISON
+  // ========================================
+
+  async function handleCompareScenarios() {
+    if (actionDisabled) return;
+
+    let inputs: ScenarioComparisonRequest;
+
+    try {
+      const validated = getValidInputs();
+
+      if (!validated) return;
+
+      inputs = validated;
+    } catch (err) {
+      setComparisonError(
+        err instanceof Error
+          ? err.message
+          : "Invalid business inputs."
+      );
+      return;
+    }
+
+    const currentVersion = requestVersion.current;
+
+    setComparing(true);
+    setComparisonError(null);
+    setComparison(null);
+
+    try {
+      const response =
+        await simulatorApi.compareScenarios(
+          inputs
+        );
+
+      if (
+        requestVersion.current === currentVersion
+      ) {
+        setComparison(response);
+      }
+    } catch (err) {
+      if (
+        requestVersion.current === currentVersion
+      ) {
+        setComparisonError(
+          err instanceof Error
+            ? err.message
+            : "Scenario comparison failed."
+        );
+      }
+    } finally {
+      setComparing(false);
+    }
+  }
+
+  // ========================================
+  // INTERFACE
+  // ========================================
+
   return (
     <div className="space-y-8">
+
       {/* PAGE HEADER */}
       <div>
         <Link
@@ -254,19 +431,21 @@ export default function Simulator() {
 
         <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-400">
           Estimate electricity-related emissions,
-          explore reduction scenarios, and calculate
+          explore reduction strategies, and compare
           potential electricity cost savings.
         </p>
       </div>
 
+      {/* MAIN TWO-COLUMN LAYOUT */}
       <div className="grid gap-6 xl:grid-cols-2">
-        {/* ========================================
+
+        {/* =====================================
             BUSINESS INPUTS
-        ======================================== */}
+        ===================================== */}
 
         <form
           onSubmit={handleSubmit}
-          className="space-y-6 rounded-2xl border border-white/10 bg-[#0d1e19] p-6 sm:p-7"
+          className={`${panelClass} space-y-6`}
         >
           <div className="flex items-center gap-3">
             <Factory
@@ -310,9 +489,9 @@ export default function Simulator() {
             </select>
 
             <p className="mt-2 text-xs leading-5 text-slate-500">
-              Countries with documented electricity
-              factors use their available default.
-              Other countries require a custom factor.
+              Documented national electricity factors
+              are selected automatically where
+              available.
             </p>
           </div>
 
@@ -341,7 +520,7 @@ export default function Simulator() {
             />
           </div>
 
-          {/* ELECTRICITY COST */}
+          {/* ELECTRICITY PRICE */}
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label
@@ -399,7 +578,7 @@ export default function Simulator() {
                 htmlFor="sim-reduction"
                 className="text-sm font-medium text-slate-300"
               >
-                Electricity demand reduction
+                Individual reduction scenario
               </label>
 
               <span className="text-xl font-semibold text-emerald-400">
@@ -415,7 +594,9 @@ export default function Simulator() {
               step="5"
               value={reduction}
               onChange={(event) => {
-                setReduction(Number(event.target.value));
+                setReduction(
+                  Number(event.target.value)
+                );
                 changeInputs();
               }}
               className="w-full accent-emerald-400"
@@ -426,12 +607,15 @@ export default function Simulator() {
               <span>50%</span>
               <span>100%</span>
             </div>
+
+            <p className="mt-3 text-xs leading-5 text-slate-500">
+              This slider controls the individual
+              simulation. The comparison always uses
+              10%, 20%, and 40%.
+            </p>
           </div>
 
-          {/* ========================================
-              DYNAMIC EMISSIONS FACTOR
-          ======================================== */}
-
+          {/* EMISSIONS FACTOR */}
           <div className="rounded-xl border border-white/10 bg-white/[0.03] p-5">
             <div className="flex items-center gap-2">
               <Database
@@ -458,20 +642,10 @@ export default function Simulator() {
             ) : factorsError ? (
               <div
                 role="alert"
-                className="mt-4 rounded-lg border border-rose-400/20 bg-rose-400/5 p-4"
+                className="mt-4 rounded-lg border border-rose-400/20 bg-rose-400/5 p-4 text-sm text-rose-300"
               >
-                <p className="text-sm text-rose-300">
-                  Could not load electricity factors.
-                </p>
-
-                <p className="mt-2 text-xs text-slate-400">
-                  {factorsError}
-                </p>
-
-                <p className="mt-2 text-xs text-slate-500">
-                  Check that FastAPI is running and
-                  your frontend origin is allowed.
-                </p>
+                Could not load electricity factors.
+                {` ${factorsError}`}
               </div>
             ) : (
               <>
@@ -496,9 +670,9 @@ export default function Simulator() {
                   <div className="mt-4">
                     {!selectedFactor && (
                       <p className="mb-3 text-xs leading-5 text-amber-200">
-                        No documented default electricity
-                        factor is available for this country.
-                        Supply your own factor to continue.
+                        No documented default factor
+                        is available for this country.
+                        Enter a custom factor.
                       </p>
                     )}
 
@@ -518,17 +692,19 @@ export default function Simulator() {
                       required
                       value={customFactor}
                       onChange={(event) => {
-                        setCustomFactor(event.target.value);
+                        setCustomFactor(
+                          event.target.value
+                        );
                         changeInputs();
                       }}
-                      placeholder="Enter your documented factor"
+                      placeholder="Enter your electricity factor"
                       className={inputClass}
                     />
 
                     <p className="mt-2 text-xs leading-5 text-amber-200/80">
-                      User-supplied factors are not verified
-                      by the application. Check whether
-                      your factor measures CO₂ or CO₂e.
+                      Custom factors are user-supplied
+                      assumptions. Confirm whether
+                      your source measures CO₂ or CO₂e.
                     </p>
                   </div>
                 ) : (
@@ -548,15 +724,17 @@ export default function Simulator() {
                         {selectedFactor.gas_basis}
                       </p>
 
-                      <a
-                        href={selectedFactor.source_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="mt-3 inline-flex items-center gap-1 text-xs text-emerald-400 hover:underline"
-                      >
-                        View factor source
-                        <ExternalLink size={13} />
-                      </a>
+                      {selectedFactor.source_url && (
+                        <a
+                          href={selectedFactor.source_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-3 inline-flex items-center gap-1 text-xs text-emerald-400 hover:underline"
+                        >
+                          View factor source
+                          <ExternalLink size={13} />
+                        </a>
+                      )}
                     </div>
                   )
                 )}
@@ -564,24 +742,20 @@ export default function Simulator() {
             )}
           </div>
 
-          {/* ERROR */}
+          {/* SINGLE SIMULATION ERROR */}
           {error && (
             <div
               role="alert"
-              className="rounded-xl border border-rose-400/20 bg-rose-400/5 p-4 text-sm leading-6 text-rose-300"
+              className="rounded-xl border border-rose-400/20 bg-rose-400/5 p-4 text-sm text-rose-300"
             >
               {error}
             </div>
           )}
 
-          {/* CALCULATE */}
+          {/* SINGLE SIMULATION BUTTON */}
           <button
             type="submit"
-            disabled={
-              submitting ||
-              factorsLoading ||
-              factorsError !== null
-            }
+            disabled={actionDisabled}
             className="flex w-full items-center justify-center gap-3 rounded-xl bg-emerald-400 px-5 py-4 font-semibold text-[#071310] transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {submitting ? (
@@ -600,14 +774,56 @@ export default function Simulator() {
               </>
             )}
           </button>
+
+          {/* ADVANCED COMPARISON BUTTON */}
+          <div className="border-t border-white/10 pt-5">
+            <p className="mb-4 text-sm leading-6 text-slate-400">
+              Want to compare multiple strategies?
+              Calculate conservative, moderate,
+              and ambitious electricity reductions
+              using the same business inputs.
+            </p>
+
+            <button
+              type="button"
+              onClick={handleCompareScenarios}
+              disabled={actionDisabled}
+              className="flex w-full items-center justify-center gap-3 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-5 py-4 font-semibold text-emerald-300 transition hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {comparing ? (
+                <>
+                  <LoaderCircle
+                    size={20}
+                    className="animate-spin"
+                  />
+                  Comparing strategies...
+                </>
+              ) : (
+                <>
+                  <BarChart3 size={20} />
+                  Compare Three Strategies
+                  <ArrowRight size={18} />
+                </>
+              )}
+            </button>
+
+            {comparisonError && (
+              <div
+                role="alert"
+                className="mt-4 rounded-xl border border-rose-400/20 bg-rose-400/5 p-4 text-sm text-rose-300"
+              >
+                {comparisonError}
+              </div>
+            )}
+          </div>
         </form>
 
-        {/* ========================================
-            RESULTS PANEL
-        ======================================== */}
+        {/* =====================================
+            SINGLE SIMULATION RESULTS
+        ===================================== */}
 
         <div className="space-y-5">
-          <div className="rounded-2xl border border-white/10 bg-[#0d1e19] p-6 sm:p-7">
+          <div className={panelClass}>
             <div className="mb-6 flex items-center gap-3">
               <Leaf
                 size={22}
@@ -626,7 +842,7 @@ export default function Simulator() {
                   Calculation completed
                 </div>
 
-                {/* EMISSIONS METRICS */}
+                {/* EMISSIONS AND SAVINGS */}
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="rounded-xl bg-white/5 p-5">
                     <p className="text-xs text-slate-400">
@@ -697,7 +913,7 @@ export default function Simulator() {
                   </div>
                 </div>
 
-                {/* EMISSIONS COMPARISON */}
+                {/* EMISSIONS BAR COMPARISON */}
                 <div className="rounded-xl border border-white/10 p-5">
                   <h3 className="mb-5 text-sm font-semibold">
                     Emissions Comparison
@@ -707,13 +923,15 @@ export default function Simulator() {
                     {[
                       {
                         label: "Baseline",
-                        value: result.baseline_emissions_tonnes,
+                        value:
+                          result.baseline_emissions_tonnes,
                         width: "100%",
                         color: "bg-slate-400",
                       },
                       {
                         label: "Reduction scenario",
-                        value: result.scenario_emissions_tonnes,
+                        value:
+                          result.scenario_emissions_tonnes,
                         width: `${
                           result.baseline_emissions_tonnes > 0
                             ? Math.min(
@@ -732,14 +950,20 @@ export default function Simulator() {
                           <span>{item.label}</span>
 
                           <span>
-                            {numberFormat(item.value, 3)} t
+                            {numberFormat(
+                              item.value,
+                              3
+                            )}{" "}
+                            t
                           </span>
                         </div>
 
                         <div className="h-3 overflow-hidden rounded-full bg-white/10">
                           <div
                             className={`h-full rounded-full ${item.color}`}
-                            style={{ width: item.width }}
+                            style={{
+                              width: item.width,
+                            }}
                           />
                         </div>
                       </div>
@@ -809,20 +1033,17 @@ export default function Simulator() {
                 </h3>
 
                 <p className="mt-3 max-w-xs text-sm leading-6 text-slate-400">
-                  Enter your electricity consumption,
-                  choose a reduction scenario, and run
-                  the simulation.
+                  Enter your business electricity
+                  data and run a simulation to view
+                  emissions and cost savings.
                 </p>
               </div>
             )}
           </div>
 
-          {/* ========================================
-              SOURCES & METHODOLOGY
-          ======================================== */}
-
+          {/* SOURCES AND METHODOLOGY */}
           {result && (
-            <div className="rounded-2xl border border-white/10 bg-[#0d1e19] p-6">
+            <div className={panelClass}>
               <div className="mb-4 flex items-center gap-2">
                 <Database
                   size={19}
@@ -840,13 +1061,16 @@ export default function Simulator() {
 
               <p className="mt-2 text-xs text-slate-400">
                 Factor:{" "}
-                {result.emission_factor_kg_co2e_per_kwh}{" "}
+                {
+                  result.emission_factor_kg_co2e_per_kwh
+                }{" "}
                 {result.factor_unit}
               </p>
 
               <p className="mt-2 text-xs text-slate-400">
                 Reporting year:{" "}
-                {result.factor_year ?? "Not specified"}
+                {result.factor_year ??
+                  "Not specified"}
               </p>
 
               <p className="mt-2 text-xs text-slate-400">
@@ -874,14 +1098,261 @@ export default function Simulator() {
               </h4>
 
               <ul className="mt-3 list-disc space-y-2 pl-5 text-xs leading-6 text-slate-400">
-                {result.limitations.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
+                {result.limitations.map(
+                  (item, index) => (
+                    <li key={index}>{item}</li>
+                  )
+                )}
               </ul>
             </div>
           )}
         </div>
       </div>
+
+      {/* =====================================
+          ADVANCED SCENARIO COMPARISON
+      ===================================== */}
+
+      {comparison && (
+        <section
+          aria-labelledby="comparison-heading"
+          className={`${panelClass} space-y-6`}
+        >
+          <div>
+            <div className="mb-3 flex items-center gap-2 text-sm text-emerald-400">
+              <BarChart3 size={20} />
+              Business Strategy Comparison
+            </div>
+
+            <h2
+              id="comparison-heading"
+              className="text-2xl font-semibold"
+            >
+              Compare Three Strategies
+            </h2>
+
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
+              Evaluate conservative, moderate, and
+              ambitious electricity-demand reductions.
+              All calculations are supplied by
+              your FastAPI scenario-comparison engine.
+            </p>
+          </div>
+
+          {/* THREE SCENARIO CARDS */}
+          <div className="grid gap-5 md:grid-cols-3">
+            {comparison.scenarios.map(
+              (scenario) => {
+                const calculation =
+                  scenario.calculation;
+
+                const isAmbitious =
+                  scenario.name === "Ambitious";
+
+                return (
+                  <div
+                    key={scenario.name}
+                    className={`rounded-2xl border p-5 sm:p-6 ${
+                      isAmbitious
+                        ? "border-emerald-400/40 bg-emerald-400/5"
+                        : "border-white/10 bg-white/[0.03]"
+                    }`}
+                  >
+                    <p className="text-xs font-medium uppercase tracking-wider text-slate-400">
+                      {scenario.name}
+                    </p>
+
+                    <p className="mt-3 text-4xl font-semibold text-emerald-300">
+                      {scenario.reduction_percentage}%
+                    </p>
+
+                    <p className="mt-2 text-xs text-slate-400">
+                      Electricity demand reduction
+                    </p>
+
+                    <div className="my-6 h-px bg-white/10" />
+
+                    <div className="space-y-5">
+                      <div>
+                        <p className="text-xs text-slate-400">
+                          Annual cost savings
+                        </p>
+
+                        <p className="mt-2 text-2xl font-semibold text-emerald-300">
+                          {numberFormat(
+                            calculation.annual_cost_savings
+                          )}
+                        </p>
+
+                        <p className="mt-1 text-xs text-slate-500">
+                          {comparison.currency}
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-xs text-slate-400">
+                          Avoided emissions
+                        </p>
+
+                        <p className="mt-2 text-xl font-semibold">
+                          {numberFormat(
+                            calculation.avoided_emissions_tonnes,
+                            3
+                          )}{" "}
+                          t
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-xs text-slate-400">
+                          Electricity remaining
+                        </p>
+
+                        <p className="mt-2 text-lg font-medium">
+                          {numberFormat(
+                            scenario.remaining_electricity_kwh,
+                            0
+                          )}{" "}
+                          kWh
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-xs text-slate-400">
+                          Scenario emissions
+                        </p>
+
+                        <p className="mt-2 text-lg font-medium">
+                          {numberFormat(
+                            calculation.scenario_emissions_tonnes,
+                            3
+                          )}{" "}
+                          t
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-xs text-slate-400">
+                          Electricity cost after reduction
+                        </p>
+
+                        <p className="mt-2 text-lg font-medium">
+                          {numberFormat(
+                            calculation.scenario_electricity_cost
+                          )}{" "}
+                          {comparison.currency}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+            )}
+          </div>
+
+          {/* COMPARATIVE SAVINGS BARS */}
+          <div className="rounded-xl border border-white/10 p-5">
+            <h3 className="mb-5 text-sm font-semibold">
+              Annual Savings Comparison
+            </h3>
+
+            <div className="space-y-5">
+              {comparison.scenarios.map(
+                (scenario) => {
+                  const maxSavings = Math.max(
+                    0,
+                    ...comparison.scenarios.map(
+                      (item) =>
+                        item.calculation
+                          .annual_cost_savings
+                    )
+                  );
+
+                  const savings =
+                    scenario.calculation
+                      .annual_cost_savings;
+
+                  const width =
+                    maxSavings > 0
+                      ? (savings / maxSavings) * 100
+                      : 0;
+
+                  return (
+                    <div key={scenario.name}>
+                      <div className="mb-2 flex items-center justify-between gap-3 text-xs">
+                        <span className="text-slate-400">
+                          {scenario.name}
+                        </span>
+
+                        <span className="text-slate-200">
+                          {numberFormat(savings)}{" "}
+                          {comparison.currency}
+                        </span>
+                      </div>
+
+                      <div className="h-3 overflow-hidden rounded-full bg-white/10">
+                        <div
+                          className="h-full rounded-full bg-emerald-400 transition-all"
+                          style={{
+                            width: `${width}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  );
+                }
+              )}
+            </div>
+          </div>
+
+          {/* SCENARIO METHODOLOGY */}
+          <div className="rounded-xl border border-white/10 p-5">
+            <h3 className="mb-3 text-sm font-semibold">
+              Comparison Methodology
+            </h3>
+
+            <p className="text-xs leading-6 text-slate-400">
+              {comparison.methodology}
+            </p>
+
+            {comparison.scenarios[0] && (
+              <>
+                <p className="mt-3 text-xs text-slate-400">
+                  Factor source:{" "}
+                  {
+                    comparison.scenarios[0]
+                      .calculation.factor_source
+                  }
+                </p>
+
+                <p className="mt-2 text-xs text-slate-400">
+                  Gas basis:{" "}
+                  {
+                    comparison.scenarios[0]
+                      .calculation.factor_gas_basis
+                  }
+                </p>
+
+                <p className="mt-2 text-xs text-slate-400">
+                  Reporting year:{" "}
+                  {comparison.scenarios[0]
+                    .calculation.factor_year ??
+                    "Not specified"}
+                </p>
+
+                <p className="mt-3 text-xs leading-6 text-slate-500">
+                  These comparisons are illustrative.
+                  They assume a constant electricity
+                  price and emissions factor, exclude
+                  implementation costs, and do not
+                  represent certified emissions
+                  inventories.
+                </p>
+              </>
+            )}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
