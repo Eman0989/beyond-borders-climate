@@ -13,7 +13,10 @@ class EmissionFactor:
     gas_basis: str
 
 
-FACTORS = {
+FACTORS: dict[str, EmissionFactor] = {
+
+    # POLAND
+    # KOBiZE: 553 kg CO2/MWh, 2024
     "POL": EmissionFactor(
         country_code="POL",
         value=0.553,
@@ -25,7 +28,29 @@ FACTORS = {
             "2025/142_Wskazniki_emisyjnosci_2025.pdf"
         ),
         unit="kg CO2/kWh",
-        gas_basis="Direct CO2, end-user electricity",
+        gas_basis=(
+            "Direct CO2, end-user electricity; "
+            "KOBiZE national-average indicator"
+        ),
+    ),
+
+    # GERMANY
+    # UBA: 353 g CO2/kWh, 2024 (revised 2026)
+    "DEU": EmissionFactor(
+        country_code="DEU",
+        value=0.353,
+        year=2024,
+        source="Umweltbundesamt (UBA)",
+        source_url=(
+            "https://www.umweltbundesamt.de/themen/"
+            "klima-energie/energieversorgung/"
+            "strom-waermeversorgung-in-zahlen"
+        ),
+        unit="kg CO2/kWh",
+        gas_basis=(
+            "Direct CO2 per kWh of electricity consumed "
+            "in Germany; UBA 2026 revision"
+        ),
     ),
 }
 
