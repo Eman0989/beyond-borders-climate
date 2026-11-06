@@ -8,8 +8,17 @@ from app.models.simulator import (
     SimulationResponse,
 )
 
+from app.models.scenario_comparison import (
+    ScenarioComparisonRequest,
+    ScenarioComparisonResponse,
+)
+
 from app.services.simulator_service import (
     calculate_emissions,
+)
+
+from app.services.scenario_comparison_service import (
+    compare_scenarios,
 )
 
 from app.services.emission_factors import FACTORS
@@ -21,10 +30,12 @@ router = APIRouter(
 )
 
 
+# ========================================
+# DOCUMENTED COUNTRY FACTORS
+# ========================================
+
 @router.get("/factors")
 def list_emission_factors():
-    """List documented default electricity factors."""
-
     return {
         "count": len(FACTORS),
         "factors": [
@@ -39,8 +50,6 @@ def list_emission_factors():
 
 @router.get("/factors/{country_code}")
 def get_country_factor(country_code: str):
-    """Return a country factor, or an unavailable status."""
-
     code = country_code.strip().upper()
 
     factor = FACTORS.get(code)
@@ -58,6 +67,24 @@ def get_country_factor(country_code: str):
         "factor": asdict(factor),
     }
 
+
+# ========================================
+# ADVANCED SCENARIO COMPARISON
+# ========================================
+
+@router.post(
+    "/compare",
+    response_model=ScenarioComparisonResponse,
+)
+def run_scenario_comparison(
+    request: ScenarioComparisonRequest,
+) -> ScenarioComparisonResponse:
+    return compare_scenarios(request)
+
+
+# ========================================
+# ORIGINAL SME SIMULATOR
+# ========================================
 
 @router.post(
     "",
