@@ -9,6 +9,8 @@ import type {
   SimulationRequest,
   SimulationResponse,
   EmissionFactorsResponse,
+  ScenarioComparisonRequest,
+  ScenarioComparisonResponse,
 } from "../types/simulator";
 
 // ========================================
@@ -65,7 +67,7 @@ async function apiRequest<T>(
         }
       }
     } catch {
-      // Preserve HTTP status if JSON parsing fails.
+      // Preserve HTTP status if parsing fails.
     }
 
     throw new Error(message);
@@ -79,7 +81,6 @@ async function apiRequest<T>(
 // ========================================
 
 export const climateApi = {
-  // Retrieve all country climate profiles
   async getCountries(
     signal?: AbortSignal
   ): Promise<CountryClimate[]> {
@@ -90,21 +91,18 @@ export const climateApi = {
     return response.map(normalizeCountry);
   },
 
-  // Retrieve a specific country
   async getCountry(
     code: string,
     signal?: AbortSignal
   ): Promise<CountryClimate> {
-    const response =
-      await apiRequest<CountryClimateAPI>(
-        `/api/climate/countries/${encodeURIComponent(code)}`,
-        { signal }
-      );
+    const response = await apiRequest<CountryClimateAPI>(
+      `/api/climate/countries/${encodeURIComponent(code)}`,
+      { signal }
+    );
 
     return normalizeCountry(response);
   },
 
-  // Check backend health
   async healthCheck(signal?: AbortSignal) {
     return apiRequest<{
       status: string;
@@ -119,8 +117,7 @@ export const climateApi = {
 // ========================================
 
 export const simulatorApi = {
-  // Calculate electricity-related emissions
-  // and estimated cost savings
+  // Original single-scenario calculation
   async calculate(
     request: SimulationRequest
   ): Promise<SimulationResponse> {
@@ -133,13 +130,27 @@ export const simulatorApi = {
     );
   },
 
-  // Retrieve all documented electricity factors
+  // Documented country electricity factors
   async getFactors(
     signal?: AbortSignal
   ): Promise<EmissionFactorsResponse> {
     return apiRequest<EmissionFactorsResponse>(
       "/api/simulator/factors",
       { signal }
+    );
+  },
+
+  // Three-scenario comparison:
+  // Conservative 10%, Moderate 20%, Ambitious 40%
+  async compareScenarios(
+    request: ScenarioComparisonRequest
+  ): Promise<ScenarioComparisonResponse> {
+    return apiRequest<ScenarioComparisonResponse>(
+      "/api/simulator/compare",
+      {
+        method: "POST",
+        body: JSON.stringify(request),
+      }
     );
   },
 };

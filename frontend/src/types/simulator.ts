@@ -49,3 +49,29 @@ export type EmissionFactorsResponse = {
   count: number;
   factors: ElectricityEmissionFactor[];
 };
+
+/* ========================================
+   ADVANCED SCENARIO COMPARISON
+======================================== */
+
+export type ScenarioComparisonRequest = {
+  country_code: string;
+  annual_electricity_kwh: number;
+  electricity_price_per_kwh: number;
+  currency: Currency;
+  emission_factor_kg_co2e_per_kwh?: number;
+};
+
+export type ScenarioResult = {
+  name: string;
+  reduction_percentage: number;
+  remaining_electricity_kwh: number;
+  calculation: SimulationResponse;
+};
+
+export type ScenarioComparisonResponse = {
+  country_code: string;
+  currency: Currency;
+  scenarios: ScenarioResult[];
+  methodology: string;
+};
